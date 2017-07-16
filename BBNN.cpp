@@ -78,6 +78,7 @@ class NeuralUnit;
 template <typename _CalculateType = double>
 class OutputReceiver: public NeuralNetworkElement
 {
+	friend class BidirectionalBootstrapNeuralNetwork<_CalculateType>;
 	public:
 		OutputReceiver() = delete;
 		OutputReceiver(const shared_ptr<NeuralNetworkBase>&) noexcept;
@@ -91,6 +92,7 @@ template <typename _CalculateType>
 OutputReceiver<_CalculateType>::OutputReceiver(
 	const shared_ptr<NeuralNetworkBase>& _nn) noexcept
 {
+	//cout<<"对于神经网络"<<_nn<<"，构建了"<<this<<endl;
 	return;
 }
 
@@ -155,8 +157,7 @@ inline void NeuralUnit<_CalculateType>::
 	{
 		for (auto& nextLevelNeuralUnit: this->_connectTo)
 		{
-			shared_ptr<NeuralUnit<_CalculateType>> self =
-				this->shared_from_this();
+			auto self =	this->shared_from_this();
 			nextLevelNeuralUnit->makeImpulses(_impulses, self);
 		}
 	}
@@ -188,12 +189,20 @@ inline void NeuralUnit<_CalculateType>::printCache() noexcept
 }
 
 template <typename _CalculateType = double>
-class BidirectionalBootstrapNeuralNetwork: public NeuralNetworkBase
+class BidirectionalBootstrapNeuralNetwork:
+	public NeuralNetworkBase,
+	public enable_shared_from_this<
+		BidirectionalBootstrapNeuralNetwork<
+			_CalculateType
+		>
+	>
 {
 	public:
 		BidirectionalBootstrapNeuralNetwork() = delete;
 		BidirectionalBootstrapNeuralNetwork(
 			const size_t&, const size_t&) noexcept;
+		static shared_ptr<BidirectionalBootstrapNeuralNetwork<_CalculateType>>
+			getNetwork(const size_t&, const size_t&) noexcept;
 		BidirectionalBootstrapNeuralNetwork(
 			const BidirectionalBootstrapNeuralNetwork&) = delete;
 		BidirectionalBootstrapNeuralNetwork(
@@ -209,13 +218,17 @@ class BidirectionalBootstrapNeuralNetwork: public NeuralNetworkBase
 			vector<_CalculateType>>&) noexcept;
 		void print() noexcept;
 	protected:
+
 		vector<shared_ptr<NeuralUnit<_CalculateType>>> _inputLayer;
 		vector<shared_ptr<NeuralUnit<_CalculateType>>> _outputLayer;
 		vector<shared_ptr<NeuralUnit<_CalculateType>>> _neuralUnit;
 	private:
 		void _setInputLayer(const size_t&) noexcept;
 		void _setOutputLayer(const size_t&) noexcept;
+		void _initializeTask() noexcept;
 		void _initializeConnection() noexcept;
+		void _runtimeTask() noexcept;
+		bool _taskInitializeConnection;
 };
 
 template <typename _CalculateType>
@@ -226,8 +239,20 @@ BidirectionalBootstrapNeuralNetwork<_CalculateType>::
 {
 	this->_setInputLayer(_inputArgumentCount);
 	this->_setOutputLayer(_outputArgumentCount);
-	this->_initializeConnection();
+	this->_initializeTask();
 	return;
+}
+
+template <typename _CalculateType>
+shared_ptr<BidirectionalBootstrapNeuralNetwork<_CalculateType>>
+	BidirectionalBootstrapNeuralNetwork<_CalculateType>::
+		getNetwork(const size_t& _inputArgumentCount,
+			const size_t& _outputArgumentCount) noexcept
+{
+	auto instance =
+		make_shared<BidirectionalBootstrapNeuralNetwork<_CalculateType>>(
+			_inputArgumentCount, _outputArgumentCount);
+	return instance;
 }
 
 template <typename _CalculateType>
@@ -260,6 +285,16 @@ inline void
 
 template <typename _CalculateType>
 inline void BidirectionalBootstrapNeuralNetwork<_CalculateType>::
+	_initializeTask() noexcept
+{
+	this->_taskInitializeConnection = true;
+	return;
+}
+
+// 不能在构造时调用, 因为要获取this的智能指针
+// 通过运行时任务进行调用
+template <typename _CalculateType>
+inline void BidirectionalBootstrapNeuralNetwork<_CalculateType>::
 	_initializeConnection() noexcept
 {
 	for (auto& inputUnitPtr: this->_inputLayer)
@@ -273,7 +308,21 @@ inline void BidirectionalBootstrapNeuralNetwork<_CalculateType>::
 	// 构建神经网络输出数据接收层
 	for (auto& outputUnitPtr: this->_outputLayer)
 	{
-		
+		auto self = this->shared_from_this();
+		//this->_neuralUnit.push_back(unit);
+	}
+	return;
+}
+
+// 运行时初始化检测
+template <typename _CalculateType>
+inline void BidirectionalBootstrapNeuralNetwork<_CalculateType>::
+	_runtimeTask() noexcept
+{
+	if (this->_taskInitializeConnection)
+	{
+		this->_initializeConnection();
+		this->_taskInitializeConnection = false;
 	}
 	return;
 }
@@ -283,6 +332,7 @@ inline vector<shared_ptr<NeuralUnit<_CalculateType>>>&
 	BidirectionalBootstrapNeuralNetwork<_CalculateType>::
 		getInputLayer() noexcept
 {
+	this->_runtimeTask();
 	return this->_inputLayer;
 }
 
@@ -291,6 +341,7 @@ inline vector<shared_ptr<NeuralUnit<_CalculateType>>>&
 	BidirectionalBootstrapNeuralNetwork<_CalculateType>::
 		getOutputLayer() noexcept
 {
+	this->_runtimeTask();
 	return this->_outputLayer;
 }
 
@@ -300,6 +351,7 @@ inline void
 		const pair<vector<_CalculateType>,
 			vector<_CalculateType>>& _trainingItem) noexcept
 {
+	this->_runtimeTask();
 	const auto& _inputArray = _trainingItem.first;
 	const auto& _outputArray = _trainingItem.second;
 	if (_inputArray.size() != this->_inputLayer.size() ||
@@ -320,6 +372,7 @@ template <typename _CalculateType>
 inline void BidirectionalBootstrapNeuralNetwork<_CalculateType>::
 	print() noexcept
 {
+	this->_runtimeTask();
 	for (const auto& unit: this->_neuralUnit)
 	{
 		cout<<"["<<unit->_id<<"]神经元 "<<unit<<endl;
@@ -357,11 +410,11 @@ inline void BidirectionalBootstrapNeuralNetwork<_CalculateType>::
 int main(int argc, char* argv[])
 {
 	using BBNN = BidirectionalBootstrapNeuralNetwork<>;
-	BBNN XOR(2, 1);
-	XOR.training({{0, 0}, {0}});
-	XOR.training({{0, 1}, {1}});
-	XOR.training({{1, 0}, {1}});
-	XOR.training({{1, 1}, {0}});
-	XOR.print();
+	auto XOR = BidirectionalBootstrapNeuralNetwork<>::getNetwork(2, 1);
+	XOR->training({{0, 0}, {0}});
+	XOR->training({{0, 1}, {1}});
+	XOR->training({{1, 0}, {1}});
+	XOR->training({{1, 1}, {0}});
+	XOR->print();
 	return 0;
 }
